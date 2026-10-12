@@ -1,0 +1,9 @@
+# Packages for YOUR machine, to run the test harness (python -m test ...).
+# The server's own dependencies are in docker-requirements.txt and are only
+# installed inside the Docker image.
+requests
+tqdm
+numpy
+# optional: lets the harness read AES-encrypted sample archives
+# (for example the zips downloaded from MalwareBazaar)
+pyzipper

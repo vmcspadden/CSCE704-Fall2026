@@ -1,0 +1,28 @@
+{
+  "threshold": 0.8549141866429728,
+  "confusion_matrix": {
+    "tn": 99203,
+    "fp": 797,
+    "fn": 3967,
+    "tp": 96033
+  },
+  "precision": 0.991769079830631,
+  "recall_tpr": 0.96033,
+  "fpr": 0.00797,
+  "f1": 0.9757963725041915,
+  "roc_auc": 0.9973425213,
+  "pr_auc": 0.9976440781948183,
+  "target_fpr": 0.008,
+  "fpr_constraint_satisfied": true,
+  "evaluated_on": "EMBER 2018 test set (200000 rows), held out from every member",
+  "members": [
+    {
+      "name": "runC.txt",
+      "weight": 1.0
+    },
+    {
+      "name": "ember_model_2018.txt",
+      "weight": 1.0
+    }
+  ]
+}

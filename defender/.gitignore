@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Data (large / regenerable EMBER download + vectorized cache)
+data/*
+!data/.gitkeep
+
+# Model artifacts: ignored by default (large / regenerable), except the
+# real trained model bundle checked in at models/detector/
+models/*
+!models/.gitkeep
+!models/detector/
+!models/detector/**
+
+# Generated predictions
+predictions.csv
+*.predictions.csv
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+dist/

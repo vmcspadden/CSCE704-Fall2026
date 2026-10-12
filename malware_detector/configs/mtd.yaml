@@ -1,9 +1,0 @@
-mtd:
-  enabled: true
-  strategy: random
-  seed: 42
-
-  models:
-    - models/adversarial_lightgbm
-    - models/adversarial_xgboost
-    - models/adversarial_random_forest

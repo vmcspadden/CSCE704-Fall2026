@@ -1,0 +1,12 @@
+# Packages installed INSIDE the Docker image.
+# The first five are the detector's own pins (its requirements-runtime.txt):
+# the model was trained and tested with exactly these versions.
+numpy==1.26.4
+scikit-learn==1.5.1
+joblib==1.4.2
+lightgbm==4.5.0
+lief==1.0.0
+# the template's web server
+Flask==3.0.3
+Werkzeug==3.0.3
+gevent==24.2.1
