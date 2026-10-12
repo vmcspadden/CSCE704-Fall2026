@@ -2,4 +2,7 @@
 
 Course project repository for **Data Analytics for Cybersecurity**.
 
-The **BlackBox Defense** submission, including the trained malware-detection model, source code, dependencies, and usage instructions, is located in the [`malware_detector/`](./malware_detector/) directory.
+The **BlackBox Defense** submission (Docker image: web server, detector code,
+trained model, test harness, and the optional model pool / adversarial
+training) is in the [`defender/`](./defender/) folder. Build and test
+instructions are in [`defender/README.md`](./defender/README.md).

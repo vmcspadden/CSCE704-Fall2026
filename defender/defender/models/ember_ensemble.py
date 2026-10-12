@@ -2,6 +2,8 @@
 
 The detector itself (feature extraction and model) lives in the ``src``
 package and the model bundle in ``models/detector``; both are used unchanged.
+Several model folders can be given instead of one; they are then served as a
+model pool (src/mtd.py) that combines them with ``pool_strategy``.
 This class only gives them the one method the server calls:
 
     predict(bytez) -> 0 (benign) or 1 (malicious)
@@ -14,10 +16,12 @@ Behaviour mirrors the detector's own server (src/server.py):
     ``verdict_on_failure``.
 """
 import logging
+import os
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 
 from src.features import extract_features
-from src.model import ModelWrapper, vectors_to_matrix
+from src.model import vectors_to_matrix
+from src.mtd import load_detector
 
 log = logging.getLogger("defender")
 
@@ -25,15 +29,13 @@ log = logging.getLogger("defender")
 class EmberEnsembleModel(object):
 
     def __init__(self, model_dir, threshold=None, max_score_bytes=16 << 20,
-                 deadline_seconds=4.0, verdict_on_failure=1):
-        self.wrapper = ModelWrapper.load(model_dir)
-        # the container gets one CPU: extra LightGBM threads only add contention
-        self.wrapper.num_threads = 1
-        if hasattr(self.wrapper.estimator, "set_params"):
-            try:
-                self.wrapper.estimator.set_params(n_jobs=1)
-            except ValueError:
-                pass
+                 deadline_seconds=4.0, verdict_on_failure=1, pool_strategy="average"):
+        # one folder, or a list of folders for a model pool
+        self.model_dirs = [model_dir] if isinstance(model_dir, str) else list(model_dir)
+        self.pool_strategy = pool_strategy
+        # a ModelWrapper (one folder) or a ModelPool (several); both run
+        # single-threaded, since the container gets one CPU
+        self.wrapper = load_detector(self.model_dirs, strategy=pool_strategy)
 
         # CUSTOMIZE: the threshold saved with the model is used unless one is given.
         # A sample is malicious when its malware probability is >= threshold,
@@ -52,7 +54,11 @@ class EmberEnsembleModel(object):
         if result.status != "ok" or result.vector is None:
             return self.verdict_on_failure, result.status
         prob = float(self.wrapper.predict_proba(vectors_to_matrix([result.vector]))[0])
-        return int(prob >= self.threshold), "ok p=%.4f" % prob
+        detail = "ok p=%.4f" % prob
+        members = getattr(self.wrapper, "last_members", None)
+        if members and len(self.model_dirs) > 1:
+            detail += " members=" + ",".join(os.path.basename(m) for m in members)
+        return int(prob >= self.threshold), detail
 
     def predict(self, bytez):
         future = self._pool.submit(self._score, bytez)
@@ -69,12 +75,15 @@ class EmberEnsembleModel(object):
     def model_info(self):
         info = {
             "backend": self.wrapper.backend,
+            "models": [os.path.basename(d.rstrip("/")) for d in self.model_dirs],
             "features": len(self.wrapper.feature_schema),
             "max_score_bytes": self.max_score_bytes,
             "deadline_seconds": self.deadline_seconds,
             "verdict_on_failure": self.verdict_on_failure,
         }
-        members = getattr(self.wrapper.estimator, "members", None)
+        if len(self.model_dirs) > 1:
+            info["pool_strategy"] = self.pool_strategy
+        members = getattr(getattr(self.wrapper, "estimator", None), "members", None)
         if members:
             info["members"] = [name for name, _, _ in members]
         return info

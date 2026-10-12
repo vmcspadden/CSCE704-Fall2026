@@ -1,6 +1,20 @@
+# Send Docker only what the Dockerfile copies. Without this, everything in
+# this folder (datasets, sample archives, test output) is uploaded to the
+# Docker daemon on every build.
 *
-!Dockerfile
-!requirements-runtime.txt
-!src/
-!models/detector/
+!docker-requirements.txt
+!defender
+!src
+
+# ...and never copy data, samples or the old baseline model into the image
 **/__pycache__
+**/*.pyc
+**/*.pkl
+**/*.pkl.gz
+**/data
+**/dataset
+**/datasets
+**/samples
+**/malware
+**/goodware
+**/benign

@@ -63,11 +63,15 @@ WORKDIR /opt/defender/
 
 # one may tune the model via environmental variables
 # (DF_MODEL_DIR is relative to /opt/defender/defender)
+# For a model pool, list several folders separated by commas, e.g.
+#   DF_MODEL_DIR=models/detector,models/my_model
+# and pick how they are combined: average (recommended), hash or random.
 ENV DF_MODEL_DIR=models/detector
+ENV DF_POOL_STRATEGY=average
 ENV DF_MODEL_NAME=ember_ensemble
-# Empty = use the threshold saved with the model (models/detector/threshold.json).
-# A sample is malicious when its malware probability is >= threshold,
-# so LOWERING it flags more files.
+# Empty = use the threshold saved with the model (models/detector/threshold.json;
+# a pool's combined score always uses 0.5). A sample is malicious when its
+# score is >= threshold, so LOWERING it flags more files.
 ENV DF_MODEL_THRESH=""
 # only this many bytes of a sample are scored; scoring gets this many seconds
 ENV DF_MAX_SCORE_BYTES=16777216
@@ -78,9 +82,10 @@ ENV DF_SCORE_DEADLINE=4.0
 #############################
 CMD ["python","-m","defender"]
 
-## TO BUILD IMAGE (from the folder containing this Dockerfile, after ./get_detector.sh):
+## TO BUILD IMAGE (from the folder containing this Dockerfile):
 # docker build -t mydefender .
 ## TO RUN IMAGE UNDER THE ASSIGNMENT'S LIMITS (ENVIRONMENTAL VARIABLES DECLARED ABOVE)
 # docker run --rm -p 8080:8080 --memory=1g --memory-swap=1g --cpus=1 mydefender
 ## TO RUN IMAGE (OVERRIDE ENVIRONMENTAL VARIABLES DECLARED ABOVE)
 # docker run --rm -p 8080:8080 --memory=1g --memory-swap=1g --cpus=1 --env DF_MODEL_THRESH=0.7 mydefender
+# docker run --rm -p 8080:8080 --memory=1g --memory-swap=1g --cpus=1 --env DF_MODEL_DIR=models/detector,models/my_model mydefender

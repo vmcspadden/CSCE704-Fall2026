@@ -27,14 +27,19 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from src.features import extract_features
-from src.model import ModelWrapper, vectors_to_matrix
+from src.model import vectors_to_matrix
+from src.mtd import STRATEGIES, load_detector, split_dirs
 
-MODEL_DIR = os.environ.get("MODEL_DIR", os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models", "detector"))
+# default: the model bundle shipped in the Docker image (defender/models/detector)
+MODEL_DIR = os.environ.get("MODEL_DIR", os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "defender", "models", "detector"))
 PORT = int(os.environ.get("PORT", "8080"))
 MAX_SCORE_BYTES = int(os.environ.get("MAX_SCORE_BYTES", str(16 << 20)))
 MAX_BODY_BYTES = int(os.environ.get("MAX_BODY_BYTES", str(512 << 20)))
 SCORE_DEADLINE_S = float(os.environ.get("SCORE_DEADLINE_S", "4.0"))
 FALLBACK_RESULT = int(os.environ.get("FALLBACK_RESULT", "1"))
+# MTD_MODEL_DIRS is the older name for MODEL_DIRS
+MODEL_DIRS = split_dirs(os.environ.get("MODEL_DIRS") or os.environ.get("MTD_MODEL_DIRS", ""))
+POOL_STRATEGY = os.environ.get("POOL_STRATEGY", "average")
 
 _READ_CHUNK = 1 << 20
 
@@ -44,15 +49,14 @@ def log(msg: str) -> None:
 
 
 class Detector:
-    def __init__(self, model_dir: str):
-        self.model = ModelWrapper.load(model_dir)
-        # The platform gives us 1 CPU; extra LightGBM threads only add contention.
-        self.model.num_threads = 1
-        if hasattr(self.model.estimator, "set_params"):
-            try:
-                self.model.estimator.set_params(n_jobs=1)
-            except ValueError:
-                pass
+    def __init__(self, model_dirs, strategy: str = "average"):
+        if isinstance(model_dirs, str):
+            model_dirs = [model_dirs]
+        if strategy not in STRATEGIES:
+            raise ValueError(f"POOL_STRATEGY must be one of {STRATEGIES}, not {strategy!r}")
+        # One folder -> that model; several -> a ModelPool. Either way the
+        # model runs single-threaded: the platform gives us 1 CPU.
+        self.model = load_detector(list(model_dirs), strategy=strategy)
         # One scorer at a time: requests beyond the first queue rather than
         # splitting the single CPU and all missing the deadline together.
         self._pool = ThreadPoolExecutor(max_workers=1)
@@ -62,7 +66,10 @@ class Detector:
         if result.status != "ok" or result.vector is None:
             return FALLBACK_RESULT, result.status
         prob = float(self.model.predict_proba(vectors_to_matrix([result.vector]))[0])
-        return int(prob >= self.model.threshold), f"ok p={prob:.4f}"
+        detail = f"ok p={prob:.4f}"
+        if getattr(self.model, "last_members", None):
+            detail += " members=" + ",".join(os.path.basename(m) for m in self.model.last_members)
+        return int(prob >= self.model.threshold), detail
 
     def classify(self, data: bytes) -> tuple[int, str]:
         future = self._pool.submit(self._score, data)
@@ -146,12 +153,13 @@ class Handler(BaseHTTPRequestHandler):
 def main() -> int:
     global DETECTOR
     t0 = time.monotonic()
-    DETECTOR = Detector(MODEL_DIR)
+    model_dirs = MODEL_DIRS or [MODEL_DIR]
+    DETECTOR = Detector(model_dirs, POOL_STRATEGY)
     # Warm-up so the first real request doesn't pay one-time init costs.
     DETECTOR.classify(b"MZ" + b"\0" * 4096)
     server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     server.daemon_threads = True
-    log(f"model loaded from {MODEL_DIR} in {time.monotonic() - t0:.1f}s; listening on :{PORT}")
+    log(f"model loaded from {', '.join(model_dirs)} ({POOL_STRATEGY if len(model_dirs) > 1 else 'single'}) in {time.monotonic() - t0:.1f}s; listening on :{PORT}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

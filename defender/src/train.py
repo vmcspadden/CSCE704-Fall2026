@@ -3,6 +3,11 @@
 Usage:
     python -m src.train --samples data/train --labels data/labels.csv --output models/detector
 
+Adversarial training (optional): also pass --adversarial-samples DIR and
+--adversarial-labels CSV. Those files (evasive malware variants, labelled 1)
+are added to the training split only, never to validation, so the reported
+FPR/TPR stay honest. This applies to the --samples path, not --ember-data-dir.
+
 The exact same feature extraction code (src/features.py) used here is used
 by src/predict.py and src/evaluate.py -- the trained model bundle stores the
 feature schema and refuses to load if it no longer matches, so a training/
@@ -18,6 +23,7 @@ import sys
 import numpy as np
 import yaml
 
+from src.adversarial_training import combine_training_samples, samples_to_xy
 from src.dataset import build_dataset, stratified_split
 from src.features import FEATURE_DIM
 from src.metrics import compute_metrics, tune_threshold
@@ -61,7 +67,16 @@ def main(argv=None) -> int:
         help="Cache directory for vectorized EMBER features (auto-built from "
         "--ember-data-dir on first use, reused after).",
     )
+    parser.add_argument("--adversarial-samples", default=None,
+                        help="Directory of adversarial (evasive) malware samples, added to training only")
+    parser.add_argument("--adversarial-labels", default=None,
+                        help="CSV with filename,label rows for --adversarial-samples (labels must be 1)")
     args = parser.parse_args(argv)
+
+    if bool(args.adversarial_samples) != bool(args.adversarial_labels):
+        print("[train] ERROR: --adversarial-samples and --adversarial-labels must be given together.",
+              file=sys.stderr)
+        return 2
 
     cfg = load_config(args.config)
     if args.test_size is not None:
@@ -77,6 +92,10 @@ def main(argv=None) -> int:
     np.random.seed(seed)
 
     if args.ember_data_dir:
+        if args.adversarial_samples:
+            print("[train] ERROR: adversarial training is only supported with --samples/--labels.",
+                  file=sys.stderr)
+            return 2
         from src.train_ember import run_ember_training
 
         return run_ember_training(args, cfg)
@@ -121,10 +140,27 @@ def main(argv=None) -> int:
         print(f"[train] ERROR: {e}", file=sys.stderr)
         return 2
 
+    if args.adversarial_samples:
+        print(f"[train] Scanning adversarial samples {args.adversarial_samples} "
+              f"against labels {args.adversarial_labels} ...")
+        adversarial_samples, adversarial_report = build_dataset(
+            args.adversarial_samples, args.adversarial_labels)
+        print("[train] Adversarial dataset report:")
+        print(adversarial_report.summary())
+        n_clean = len(train_samples)
+        try:
+            train_samples = combine_training_samples(
+                train_samples, adversarial_samples, held_out_samples=val_samples)
+        except ValueError as e:
+            print(f"[train] ERROR: {e}", file=sys.stderr)
+            return 2
+        print(f"[train] Added {len(train_samples) - n_clean} adversarial sample(s) to the "
+              f"training split only ({len(adversarial_samples) - (len(train_samples) - n_clean)} "
+              "skipped as duplicates of train/validation files).")
+
     print(f"[train] Train: {len(train_samples)} samples | Validation: {len(val_samples)} samples")
 
-    X_train = vectors_to_matrix([s.vector for s in train_samples])
-    y_train = np.array([s.label for s in train_samples])
+    X_train, y_train = samples_to_xy(train_samples)
     X_val = vectors_to_matrix([s.vector for s in val_samples])
     y_val = np.array([s.label for s in val_samples])
 

@@ -4,6 +4,11 @@ Usage:
     python -m src.predict --model models/detector --input sample.exe
     python -m src.predict --model models/detector --input samples/ --output predictions.csv
 
+Model pool: repeat --model (and optionally pick --strategy average|hash|random,
+see src/mtd.py). The pool's malware_probability is its combined score, and
+its threshold is 0.5.
+    python -m src.predict --model models/detector --model models/other --input samples/
+
 Samples are only ever statically parsed (src/features.py, via pefile) --
 never executed. Output CSV columns: filename,sha256,prediction,malware_probability,status
   - prediction: 0 (benign) / 1 (malware), blank if the file could not be scored
@@ -24,6 +29,7 @@ from typing import List, Optional, TextIO
 
 from src.features import extract_features
 from src.model import ModelWrapper, vectors_to_matrix
+from src.mtd import STRATEGIES, load_detector
 
 CSV_FIELDS = ["filename", "sha256", "prediction", "malware_probability", "status"]
 
@@ -47,7 +53,7 @@ class Row:
         }
 
 
-def score_file(model: ModelWrapper, path: str, filename_label: str) -> Row:
+def score_file(model, path: str, filename_label: str) -> Row:
     try:
         with open(path, "rb") as f:
             data = f.read()
@@ -86,16 +92,19 @@ def print_single_result(row: Row, threshold: float) -> None:
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Predict malware/benign for PE file(s).")
-    parser.add_argument("--model", required=True, help="Path to trained model directory")
+    parser.add_argument("--model", required=True, action="append",
+                        help="Path to trained model directory; repeat to score with a model pool")
+    parser.add_argument("--strategy", choices=STRATEGIES, default="average",
+                        help="How a model pool combines its members (ignored for a single model)")
     parser.add_argument("--input", required=True, help="Path to a single file or a directory")
     parser.add_argument("--output", default=None, help="CSV output path (directory mode; optional)")
     parser.add_argument("--threshold", type=float, default=None, help="Override the saved threshold")
     args = parser.parse_args(argv)
 
     try:
-        model = ModelWrapper.load(args.model)
+        model = load_detector(args.model, strategy=args.strategy)
     except Exception as e:
-        print(f"error: failed to load model from {args.model}: {e}", file=sys.stderr)
+        print(f"error: failed to load model from {', '.join(args.model)}: {e}", file=sys.stderr)
         return 2
     if args.threshold is not None:
         model.threshold = args.threshold
